@@ -1,0 +1,14 @@
+public class Property {
+    public String name;
+    public String value;
+
+    public Property(String name, String value) {
+        if (name == null) {
+            throw new IllegalArgumentException("Parameter 'name' must not be null");
+        } else if (value == null) {
+            throw new IllegalArgumentException("Parameter 'value' must not be null");
+        }
+        this.name = name;
+        this.value = value;
+    }
+}
