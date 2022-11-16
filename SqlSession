@@ -1,0 +1,190 @@
+import java.lang.reflect.Field;
+import java.sql.*;
+import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+public class SqlSession {
+    final static Class[] PRIMITIVES_ARRAY = {Integer.class, Short.class, Byte.class, Long.class, Double.class, Float.class, Character.class, String.class};
+    final static Set<Class> PRIMITIVES = new HashSet<>(Arrays.asList(PRIMITIVES_ARRAY));
+    private List<SqlQuery> queries;
+    Factory factory;
+    private static List<String> objectValues;
+
+    public Cache<String, Object> cache;
+
+    public SqlSession(Factory factory, List<SqlQuery> queries, Cache<String, Object> cache) {
+        this.factory = factory;
+        this.queries = queries;
+        this.cache = cache;
+    }
+
+    public <T> T selectOne(String id) throws Exception {
+        return selectOne(id, null);
+    }
+
+    public <T> T selectOne(String id, Object param) throws Exception {
+        Connection connection = factory.getConnection();
+        List<SqlQuery> qe = queries.stream().filter(q -> q.id.equals(id)).toList();
+        if (qe.size() == 0) {
+            throw new IllegalArgumentException("Mapped Statements collection does not contain value for " + id);
+        }
+        SqlQuery sqlQuery = qe.get(0);
+        String queryString = getQueryString(sqlQuery.sql);
+        if (sqlQuery.type.equals("select")) {
+            String key = id + param;
+            if (cache.hasKey(key)) {
+                return (T) cache.get(key);
+            }
+            Object res = selectOption(queryString, connection, sqlQuery, param);
+            cache.set(key, res);
+
+            return (T) res;
+        }
+        cache.clear();
+        return otherOptions(queryString, connection, sqlQuery, param);
+    }
+
+    public <E> List<E> selectList(String id) throws Exception {
+        return selectList(id, null);
+    }
+
+    public <E> List<E> selectList(String id, Integer param) throws Exception {
+        Connection connection = factory.getConnection();
+        List<SqlQuery> qe = queries.stream().filter(q -> q.id.equals(id)).toList();
+        if (qe.size() == 0) {
+            throw new IllegalArgumentException("Mapped Statements collection does not contain value for " + id);
+        }
+        SqlQuery sqlQuery = qe.get(0);
+        String queryString = getQueryString(sqlQuery.sql);
+        if (sqlQuery.type.equals("select")) {
+            String key = id + param;
+            if (!cache.hasKey(key)) {
+                return (List<E>) cache.get(key);
+
+            }
+            Object res = selectOptionList(queryString, connection, sqlQuery, param);
+            cache.set(key, res);
+
+            return (List<E>) res;
+        }
+        factory.releaseConnection(connection);
+        return null;
+    }
+
+    private <T> T otherOptions(String queryString, Connection connection, SqlQuery sqlQuery, Object param) throws Exception {
+        if (param == null) {
+            PreparedStatement stat = connection.prepareStatement(queryString);
+            Object r = stat.executeUpdate();
+            return (T) r;
+        }
+        Class classType = Class.forName(param.getClass().getName());
+        PreparedStatement stat = connection.prepareStatement(queryString);
+        if (PRIMITIVES.contains(classType)) {
+            stat.setObject(1, param);
+        } else {
+            for (int i = 0; i < objectValues.size(); i++) {
+                Field f = classType.getDeclaredField(objectValues.get(i));
+                stat.setObject(i + 1, f.get(param));
+            }
+        }
+
+        Object r = stat.executeUpdate();
+        factory.releaseConnection(connection);
+        return (T) r;
+    }
+
+    private <T> T selectOption(String queryString, Connection connection, SqlQuery sqlQuery, Object param) throws Exception {
+        Class c = Class.forName(sqlQuery.resultType);
+        T resultClass = (T) c.getDeclaredConstructor().newInstance();
+        PreparedStatement stat = connection.prepareStatement(queryString);
+        if (param != null) {
+            stat.setObject(1, param);
+        }
+        if (sqlQuery.resultMap.equals(null)) {
+            return resultClass;
+        }
+        SqlQuery resultMap = null;
+        for (SqlQuery q : queries) {
+            if (q.id.equals(sqlQuery.resultMap)) {
+                resultMap = q;
+                break;
+            }
+        }
+        ResultSet rs = stat.executeQuery();
+        rs.next();
+        setField(resultClass, resultMap.resultMapInfo, rs);
+
+        if (rs.next()) {
+            throw new IllegalArgumentException();
+        }
+        factory.releaseConnection(connection);
+        return resultClass;
+    }
+
+    private <T> List<T> selectOptionList(String queryString, Connection connection, SqlQuery sqlQuery, Object param) throws Exception {
+        Class c = Class.forName(sqlQuery.resultType);
+        T resultClass;
+        PreparedStatement stat = connection.prepareStatement(queryString);
+        if (param != null) {
+            stat.setObject(1, param);
+        }
+
+        SqlQuery resultMap = null;
+        for (SqlQuery q : queries) {
+            if (q.id.equals(sqlQuery.resultMap)) {
+                resultMap = q;
+                break;
+            }
+        }
+
+        ArrayList<T> res = new ArrayList<>();
+        ResultSet rs = stat.executeQuery();
+        while (rs.next()) {
+            resultClass = (T) c.getDeclaredConstructor().newInstance();
+            if (!resultMap.equals(null)) {
+                setField(resultClass, resultMap.resultMapInfo, rs);
+            }
+            res.add(resultClass);
+        }
+        factory.releaseConnection(connection);
+        return res;
+    }
+
+    private static String getQueryString(String sql) {
+        objectValues = new ArrayList<>();
+        Pattern pattern = Pattern.compile("#\\{([a-zA-Z0-9]+)}");
+        Matcher matcher = pattern.matcher(sql);
+
+        String res = matcher.replaceAll(m -> {
+            objectValues.add(m.group(1));
+            return "?";
+        });
+        return res;
+    }
+
+    private String simpleCase(String v) {
+        return v.toLowerCase().replaceAll("_", "");
+    }
+
+    private <T> Map<String, Field> getStringFieldMap(Class<T> c) {
+        Map<String, Field> res = new HashMap<>();
+        for (Field f : c.getDeclaredFields()) {
+            String fieldName = simpleCase(f.getName());
+            res.put(fieldName, f);
+        }
+        return res;
+    }
+
+    private <T> void setField(T resultClass, Map<String, String> res, ResultSet rs) throws Exception {
+        int cols = rs.getMetaData().getColumnCount();
+        for (int i = 1; i <= cols; i++) {
+            String fieldName = rs.getMetaData().getColumnName(i);
+            fieldName = res.get(fieldName);
+            Field f = resultClass.getClass().getDeclaredField(fieldName);
+            if (f != null) {
+                f.set(resultClass, rs.getObject(i));
+            }
+        }
+    }
+}
