@@ -1,0 +1,54 @@
+import java.math.BigDecimal;
+import java.sql.Date;
+import java.util.List;
+
+public class EmployeeDao {
+    SqlSessionFactory factory;
+
+    public EmployeeDao(SqlSessionFactory factory) {
+        this.factory = factory;
+    }
+
+    public Employee getEmployeeById(int id) throws Exception {
+        SqlSession session = factory.openSession();
+        return session.selectOne("getEmployeeById", id);
+    }
+
+    public List<Employee> getEmployeesByJob(int id) throws Exception {
+        SqlSession session = factory.openSession();
+        return session.selectList("getEmployeesByJob", id);
+    }
+
+    public List<Employee> getAllEmployees() throws Exception {
+        SqlSession session = factory.openSession();
+        return session.selectList("getAllEmployees");
+    }
+
+    public int addEmployee(Employee e) throws Exception {
+        SqlSession session = factory.openSession();
+        return session.selectOne("addEmployee", e);
+    }
+
+    public int updateEmployee(Employee e) throws Exception {
+        SqlSession session = factory.openSession();
+        return session.selectOne("updateEmployee", e);
+    }
+
+    public int deleteEmployee(int id) throws Exception {
+        SqlSession session = factory.openSession();
+        return session.selectOne("deleteEmployee", id);
+    }
+}
+
+class Employee {
+    public Integer id;
+    public String firstName;
+    public String lastName;
+    public String email;
+    public String phone;
+    public Date hireDate;
+    public int jobId;
+    public BigDecimal salary;
+    public int managerId;
+    public int departmentId;
+}
