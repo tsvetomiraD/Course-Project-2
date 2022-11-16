@@ -1,0 +1,42 @@
+import java.util.List;
+
+public class SqlSessionFactory {
+    private final Configuration configuration;
+    static String environment;
+
+    public SqlSessionFactory(Configuration configuration, String environment) {
+        this.configuration = configuration;
+        this.environment = environment;
+    }
+
+    public SqlSession openSession() throws Exception {
+        Environment en = null;
+
+        if (en == null) {
+            en = configuration.environments.stream().filter(e -> e.id.equals(configuration.defaultEnvironment)).toList().get(0);
+        } else {
+            en = configuration.environments.stream().filter(e -> e.id.equals(environment)).toList().get(0);
+        }
+
+        String url = null;
+        String user = null;
+        String pass = null;
+        List<Property> listP = en.dataSource.properties;
+        for (Property p : listP) {
+            switch (p.name) {
+                case "username" -> user = p.value;
+                case "password" -> pass = p.value;
+                case "url" -> url = p.value;
+            }
+        }
+        Factory factory = new Factory();
+        en.factory = factory;
+        if (en.dataSource.type == "UNPOOLED") {
+            factory.factoryConnection = new FactoryConnection(user, pass, url);
+        } else {
+            factory.factoryDBCP = new FactoryDBCP(user, pass, url);
+        }
+
+        return new SqlSession(factory, configuration.sqlQueries, configuration.cache);
+    }
+}
