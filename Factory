@@ -1,0 +1,20 @@
+import java.sql.Connection;
+
+public class Factory {
+    public FactoryDBCP factoryDBCP;
+    public FactoryConnection factoryConnection;
+
+    public Connection getConnection() throws Exception {
+        if (factoryDBCP == null) {
+            return factoryConnection.getConnection();
+        }
+        return factoryDBCP.getConnection();
+    }
+
+    public void releaseConnection(Connection con) throws Exception {
+        if (factoryDBCP == null) {
+            factoryConnection.releaseConnection(con);
+        }
+        factoryDBCP.releaseConnection(con);
+    }
+}
