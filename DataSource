@@ -1,0 +1,11 @@
+import java.util.List;
+
+public class DataSource {
+    String type;
+    List<Property> properties;
+
+    public DataSource(String type, List<Property> properties) {
+        this.type = type;
+        this.properties = properties;
+    }
+}
