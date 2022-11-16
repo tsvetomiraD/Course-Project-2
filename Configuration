@@ -1,0 +1,17 @@
+import java.util.List;
+
+public class Configuration {
+    public String defaultEnvironment;
+    public List<Property> properties;
+    public List<Environment> environments;
+    public List<SqlQuery> sqlQueries;
+    public Cache<String, Object> cache;
+
+    public Configuration(List<Property> properties, List<Environment> environments, List<SqlQuery> sqlQueries, String defaultEnvironment, Cache<String, Object> cache) {
+        this.properties = properties;
+        this.environments = environments;
+        this.sqlQueries = sqlQueries;
+        this.defaultEnvironment = defaultEnvironment;
+        this.cache = cache;
+    }
+}
