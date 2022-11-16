@@ -1,0 +1,19 @@
+import java.sql.Connection;
+
+public class FactoryDBCP {
+    DatabaseConnectionPool db;
+
+    public FactoryDBCP(String user, String pass, String url) throws Exception {
+        this.db = DatabaseConnectionPool.getInstance(url, user, pass, 10, 3);
+        db = DatabaseConnectionPool.getConnectionPool();
+    }
+
+    public Connection getConnection() throws Exception {
+        return db.getConnection();
+    }
+
+    public void releaseConnection(Connection con) throws Exception {
+        db.releaseConnection(con);
+    }
+
+}
