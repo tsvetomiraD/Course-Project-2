@@ -1,0 +1,11 @@
+import java.io.File;
+
+public class SqlSessionFactoryBuilder {
+    public SqlSessionFactory build(File file) throws Exception {
+        return build(file, null);
+    }
+    public SqlSessionFactory build(File file, String environment) throws Exception {
+        XMLConfigBuilder parser = new XMLConfigBuilder(file, environment);
+        return parser.parse();
+    }
+}
