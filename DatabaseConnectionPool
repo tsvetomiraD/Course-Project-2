@@ -1,0 +1,129 @@
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.util.*;
+
+public class DatabaseConnectionPool {
+    public static String url;
+    private static String user;
+    private static String password;
+    private static Deque<Connection> connectionPool;
+    private ArrayList<Connection> usedConnections = new ArrayList<>();
+    private static int connectionsCount;
+    private static int minConnection;
+    private static DatabaseConnectionPool INSTANCE;
+
+    private DatabaseConnectionPool(String url, String user, String password, int connectionsCount, int minConnection) {
+        this.url = url;
+        this.user = user;
+        this.password = password;
+        this.connectionsCount = connectionsCount;
+        this.minConnection = minConnection;
+    }
+
+    public static DatabaseConnectionPool getInstance(String url, String user, String password, int connectionsCount, int minConnection) {
+        if (INSTANCE == null) {
+            INSTANCE = new DatabaseConnectionPool(url, user, password, connectionsCount, minConnection);
+        }
+        return INSTANCE;
+    }
+
+    public static DatabaseConnectionPool getConnectionPool() throws Exception {
+        if (INSTANCE == null) {
+            throw new Exception("Pool is not initialise");
+        }
+
+        connectionPool = new ArrayDeque<>(connectionsCount);
+        for (int i = 0; i < connectionsCount; i++) {
+            connectionPool.add(createConnection());
+        }
+        return INSTANCE;
+    }
+
+    public Connection getConnection() throws SQLException {
+        if (connectionPool.isEmpty() && usedConnections.size() == connectionsCount) {
+            throw new ArrayStoreException("No available connections!");
+        }
+        if (connectionPool.isEmpty() && usedConnections.size() < connectionsCount) {
+            connectionPool.add(createConnection());
+        }
+        Connection connection = connectionPool.pop();
+        usedConnections.add(connection);
+        Timer timer = new Timer();
+        TimerTask task = new TimerTask() {
+            @Override
+            public void run() {
+                if (usedConnections.contains(connection)) {
+                    throw new RuntimeException();
+                } else {
+                    timer.cancel();
+                }
+            }
+        };
+        timer.scheduleAtFixedRate(task, 86400, 1);
+        return connection;
+    }
+
+    public boolean releaseConnection(Connection connection) throws SQLException {
+        Timer timer = new Timer();
+        TimerTask task = new TimerTask() {
+            @Override
+            public void run() {
+                if (connectionPool.contains(connection)) {
+                    if (connectionPool.size() - 1 < minConnection) {
+                        try {
+                            Statement stat = connection.createStatement();
+                            stat.executeQuery("SELECT 1");
+                        } catch (SQLException e) {
+                            throw new RuntimeException(e);
+                        }
+                    } else {
+                        Connection conn = connectionPool.pop();
+                        try {
+                            conn.close();
+                        } catch (SQLException e) {
+                            throw new RuntimeException(e);
+                        }
+                    }
+                } else {
+                    timer.cancel();
+                }
+            }
+        };
+        timer.scheduleAtFixedRate(task, 600, 1000);
+        connectionPool.push(connection);
+        return usedConnections.remove(connection);
+    }
+
+    private static Connection createConnection() throws SQLException {
+        Connection connection = DriverManager.getConnection(url, user, password);
+        Timer timer = new Timer();
+        TimerTask task = new TimerTask() {
+            @Override
+            public void run() {
+                if (connectionPool.contains(connection)) {
+                    if (connectionPool.size() - 1 < minConnection) {
+                        try {
+                            Statement stat = connection.createStatement();
+                            stat.executeQuery("SELECT 1");
+                        } catch (SQLException e) {
+                            throw new RuntimeException(e);
+                        }
+                    } else {
+                        Connection conn = connectionPool.pop();
+                        try {
+                            conn.close();
+                        } catch (SQLException e) {
+                            throw new RuntimeException(e);
+                        }
+                    }
+                } else {
+                    timer.cancel();
+                }
+            }
+        };
+        timer.scheduleAtFixedRate(task, 600, 1000);
+        return connection;
+    }
+}
