@@ -1,0 +1,56 @@
+import java.util.Map;
+import java.util.TreeMap;
+
+class Cache<K, V> {
+    private String eviction;
+    private int flushInterval;
+    private Map<String, V> map;
+    private final int CAPACITY;
+    public Cache() {
+        this(1024, "LRU", 0);
+    }
+
+    public Cache(int capacity, String eviction, int flushInterval) {
+        this.CAPACITY = capacity;
+        this.map = new TreeMap<>();
+        this.eviction = eviction;
+        this.flushInterval = flushInterval;
+    }
+
+    public void set(String key, V value) {
+        if (map.containsKey(key)) {
+            map.remove(key);
+        }
+        if (map.size() >= CAPACITY) {
+            deleteNode();
+        }
+        map.put(key, value);
+    }
+
+    public V get(String key) {
+        V value = map.get(key);
+        if (eviction.equals("LRU")) {
+            set(key, value);
+        }
+        return value;
+    }
+
+    private void deleteNode() {
+        Object k = null;
+        for (Map.Entry<String, V> entry : map.entrySet()) {
+            if (k == null) {
+                k = entry.getKey();
+                break;
+            }
+        }
+        map.remove(k);
+    }
+
+    public boolean hasKey(K key) {
+        return map.containsKey(key);
+    }
+
+    public void clear() {
+        map.clear();
+    }
+}
