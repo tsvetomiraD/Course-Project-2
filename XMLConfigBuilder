@@ -1,0 +1,335 @@
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.Node;
+import org.w3c.dom.NodeList;
+
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.parsers.ParserConfigurationException;
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileReader;
+import java.io.Reader;
+import java.lang.annotation.Annotation;
+import java.lang.reflect.AnnotatedType;
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+public class XMLConfigBuilder {
+    static List<Property> properties = new ArrayList<>();
+    static List<Environment> environments = new ArrayList<>();
+    static List<SqlQuery> sqlQueries = new ArrayList<>();
+    static String defaultEnvironment;
+    static String environment;
+    static Cache<String , Object> cache;
+    File file;
+
+    public XMLConfigBuilder(File file, String environment) {
+        this.file = file;
+        this.environment = environment;
+    }
+
+    public SqlSessionFactory parse() throws Exception {
+        Configuration configuration = getXmlConfiguration(file);
+        return new SqlSessionFactory(configuration, environment);
+    }
+
+    public static Configuration getXmlConfiguration(File file) throws Exception {
+        DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+        DocumentBuilder builder = dbf.newDocumentBuilder();
+        Document document = builder.parse(file);
+        Element root = document.getDocumentElement();
+        if (!root.getNodeName().equals("configuration")) {
+            throw new ParserConfigurationException("Element type \"" + root.getNodeName() + "\" must be declared.");
+        }
+
+        return createConfiguration(root);
+    }
+
+    public static Configuration createConfiguration(Element root) throws Exception {
+        NodeList children = root.getChildNodes();
+
+        if (children.getLength() <= 1) {
+            throw new NullPointerException("Cannot invoke because \"environment\" is null");
+        }
+
+        for (int i = 0; i < children.getLength(); i++) {
+            Node child = children.item(i);
+            String name = child.getNodeName();
+            if (name.equals("#text"))
+                continue;
+
+            switch (name) {
+                case "environments" -> createEnvironments(child);
+                case "mappers" -> createMappers(child);
+                case "properties" -> createProperties(child);
+                default -> {
+                    throw new ParserConfigurationException("Element type \"" + child.getNodeName() + "\" must be declared.");
+                }
+            }
+        }
+
+        return new Configuration(properties, environments, sqlQueries, defaultEnvironment, cache);
+    }
+
+    private static void createProperties(Node root1) throws Exception {
+        Element e = (Element) root1;
+        String resource = e.getAttribute("resource");
+        Reader reader = new FileReader(resource);
+        BufferedReader br = new BufferedReader(reader);
+        String line = br.readLine();
+        while (line != null) {
+            String[] props = line.split("=");
+            properties.add(new Property(props[0], props[1]));
+            line = br.readLine();
+        }
+
+    }
+
+    public static void createMappers(Node root) throws Exception {
+        NodeList children = root.getChildNodes();
+
+        for (int i = 0; i < children.getLength(); i++) {
+            Node child = children.item(i);
+
+            if (child.getNodeName().equals("#text")) {
+                continue;
+            }
+            Element el = (Element) child;
+            if (!el.getAttribute("resource").equals("")) {
+                createXmlMapper(el.getAttribute("resource"));
+            } else if (!el.getAttribute("class").equals("")) {
+                createClassMapper(Class.forName(el.getAttribute("class")));
+            } else if (!el.getAttribute("url").equals("")) {
+                //todo
+            } else {
+                throw new ParserConfigurationException("A mapper element may only specify a url, resource or class, but not more than one.");
+            }
+        }
+    }
+
+    private static void createClassMapper(Class<?> aClass) {
+        for (Method m : aClass.getDeclaredMethods()) {
+            Annotation an = m.getAnnotations()[0];
+            Class<? extends Annotation> type = an.annotationType();
+            Class<?> paramType = m.getParameterTypes().length > 0 ? m.getParameterTypes()[0] : null;
+            AnnotatedType resultType = m.getAnnotatedReturnType();
+            String id = m.getName();
+            String sql = null;
+            if (type.equals(Select.class))
+                sql =  m.getAnnotation(Select.class).value();
+            else if (type.equals(Insert.class))
+                sql =  m.getAnnotation(Insert.class).value();
+            else if (type.equals(Update.class))
+                sql =  m.getAnnotation(Update.class).value();
+            else if (type.equals(Delete.class))
+                sql =  m.getAnnotation(Delete.class).value();
+
+            SqlQuery sqlQuery = new SqlQuery(type.getName().toLowerCase(), id);
+            sqlQuery.sql = sql;
+            sqlQuery.resultType = String.valueOf(resultType);
+            sqlQuery.parameterType = String.valueOf(paramType);
+        }
+    }
+
+    private static void createXmlMapper(String resource) throws Exception {
+        DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+        DocumentBuilder builder = dbf.newDocumentBuilder();
+        Document document = builder.parse(resource);
+        Element root = document.getDocumentElement();
+        createSqlQueries(root);
+    }
+
+    private static void createSqlQueries(Element root) throws Exception {
+        NodeList children = root.getChildNodes();
+        if (children.getLength() == 0) {
+            throw new ParserConfigurationException();
+        }
+
+        for (int i = 0; i < children.getLength(); i++) {
+            Node child = children.item(i);
+            SqlQuery sqlQuery = null;
+
+            if (child.getNodeName().equals("#text")) {
+                continue;
+            }
+            if (child.getNodeName().equals("cache")){
+                Element el = (Element) child;
+                String eviction = el.getAttribute("eviction");
+                if (!el.getAttribute("flushInterval").equals("") && !el.getAttribute("size").equals("") && !eviction.equals("")) {
+                    int flushInterval = Integer.parseInt(el.getAttribute("flushInterval"));
+                    int size = Integer.parseInt(el.getAttribute("size"));
+                    cache = new Cache<>(size, eviction, flushInterval);
+                    continue;
+                }
+                cache = new Cache<>();
+                continue;
+            }
+
+            switch (child.getNodeName()) {
+                case "select" -> {
+                    Element el = (Element) child;
+                    String id = el.getAttribute("id");
+                    sqlQuery = new SqlQuery("select", id);
+                    sqlQuery.sql = child.getTextContent();
+                    sqlQuery.resultType = el.getAttribute("resultType");
+                    sqlQuery.resultMap = el.getAttribute("resultMap");
+                    break;
+                }
+                case "update" -> {
+                    Element el = (Element) child;
+                    String id = el.getAttribute("id");
+                    sqlQuery = new SqlQuery("update", id);
+                    sqlQuery.parameterType = el.getAttribute("parameterType");
+                    sqlQuery.sql = child.getTextContent();
+                    break;
+                }
+                case "delete" -> {
+                    Element el = (Element) child;
+                    String id = el.getAttribute("id");
+                    sqlQuery = new SqlQuery("delete", id);
+                    sqlQuery.parameterType = el.getAttribute("parameterType");
+                    sqlQuery.sql = child.getTextContent();
+                    break;
+                }
+                case "insert" -> {
+                    Element el = (Element) child;
+                    String id = el.getAttribute("id");
+                    sqlQuery = new SqlQuery("insert", id);
+                    sqlQuery.parameterType = el.getAttribute("parameterType");
+                    sqlQuery.useGeneratedKeys = Boolean.parseBoolean(el.getAttribute("useGeneratedKeys"));
+                    sqlQuery.keyProperty = el.getAttribute("keyProperty");
+                    sqlQuery.sql = child.getTextContent();
+                    break;
+                }
+                case "resultMap" -> {
+                    Element el = (Element) child;
+                    String id = el.getAttribute("id");
+                    sqlQuery = new SqlQuery("resultMap", id);
+                    sqlQuery.typeForResultMap = el.getAttribute("type");
+                    sqlQuery.resultMapInfo = getResultMapInfo(child);
+                    break;
+                }
+                default ->
+                        throw new ParserConfigurationException("Element type \"" + child.getNodeName() + "\" must be declared.");
+            }
+            sqlQueries.add(sqlQuery);
+        }
+    }
+
+    private static Map<String, String> getResultMapInfo(Node root) throws Exception {
+        Map<String, String> lm = new HashMap<>();
+        NodeList children = root.getChildNodes();
+        if (children.getLength() == 0) {
+            throw new ParserConfigurationException();
+        }
+
+        for (int i = 0; i < children.getLength(); i++) {
+            Node child = children.item(i);
+
+            if (child.getNodeName().equals("#text")) {
+                continue;
+            }
+
+            if (child.getNodeName().equals("id") || child.getNodeName().equals("result")) {
+                Element el = (Element) child;
+                lm.put(el.getAttribute("column"), el.getAttribute("property"));
+            } else {
+                throw new ParserConfigurationException("Element type \"" + child.getNodeName() + "\" must be declared.");
+            }
+        }
+        return lm;
+    }
+
+    public static void createEnvironments(Node root) throws Exception {
+        NodeList children = root.getChildNodes();
+        Element el = (Element) root;
+        defaultEnvironment = el.getAttribute("default");
+        if (defaultEnvironment.equals("")) {
+            throw new ParserConfigurationException("Attribute \"default\" is required and must be specified for element type \"environments\".");
+        }
+
+        if (children.getLength() <= 1) {
+            throw new ParserConfigurationException("The content of element type \"environments\" is incomplete, it must match \"(environment)+\".");
+        }
+
+        for (int i = 0; i < children.getLength(); i++) {
+            Node child = children.item(i);
+            if (child.getNodeName().equals("#text")) {
+                continue;
+            }
+
+            if (child.getNodeName().equals("environment")) {
+                Environment environment = createEnvironment(child);
+                environments.add(environment);
+            } else {
+                throw new ParserConfigurationException("Element type \"" + child.getNodeName() + "\" must be declared.");
+            }
+        }
+    }
+
+    public static Environment createEnvironment(Node root) throws Exception {
+        NodeList children = root.getChildNodes();
+        Element e = (Element) root;
+        String id = e.getAttribute("id");
+        if (id.equals("")) {
+            throw new ParserConfigurationException("Attribute \"id\" is required and must be specified for element type \"environment\".");
+        }
+
+        String transactionManagerType = null;
+        DataSource dataSource = null;
+        if (children.getLength() < 4) {
+            throw new ParserConfigurationException("The content of element type \"environment\" is incomplete, it must match \"(transactionManager,dataSource)\".");
+        }
+
+        for (int i = 0; i < children.getLength(); i++) {
+            Node child = children.item(i);
+
+            if (child.getNodeName().equals("#text")) {
+                continue;
+            }
+
+            if (child.getNodeName().equals("transactionManager")) {
+                Element el = (Element) child;
+                transactionManagerType = el.getAttribute("type");
+            } else if (child.getNodeName().equals("dataSource")) {
+                Element el = (Element) child;
+                String type = el.getAttribute("type");
+                List<Property> pl = getProperties(child);
+                dataSource = new DataSource(type, pl);
+            } else {
+                throw new ParserConfigurationException("Element type \"" + child.getNodeName() + "\" must be declared.");
+            }
+        }
+
+        return new Environment(id, transactionManagerType, dataSource);
+    }
+
+    private static List<Property> getProperties(Node root) throws Exception {
+        NodeList children = root.getChildNodes();
+        List<Property> listP = new ArrayList<>();
+
+        if (children.getLength() == 0) {
+            throw new ParserConfigurationException();
+        }
+
+        for (int i = 0; i < children.getLength(); i++) {
+            Node child = children.item(i);
+            if (child.getNodeName().equals("#text")) {
+                continue;
+            }
+
+            if (child.getNodeName().equals("property")) {
+                Element el = (Element) child;
+                listP.add(new Property(el.getAttribute("name"), el.getAttribute("value")));
+            } else {
+                throw new ParserConfigurationException("Element type \"" + child.getNodeName() + "\" must be declared.");
+            }
+        }
+
+        return listP;
+    }
+}
