@@ -1,0 +1,22 @@
+import java.sql.Connection;
+import java.sql.DriverManager;
+
+public class FactoryConnection {
+    String url;
+    String user;
+    String pass;
+
+    public FactoryConnection(String user, String pass, String url) {
+        this.url = url;
+        this.user = user;
+        this.pass = pass;
+    }
+
+    public Connection getConnection() throws Exception {
+        return DriverManager.getConnection(url, user, pass);
+    }
+
+    public void releaseConnection(Connection con) throws Exception {
+        con.close();
+    }
+}
