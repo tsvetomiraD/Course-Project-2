@@ -1,0 +1,15 @@
+public class Environment {
+    public String id;
+    public String transactionFactory;
+    public DataSource dataSource;
+    public Factory factory;
+
+    public Environment(String id, String transactionFactory, DataSource dataSource) {
+        if (id == null || transactionFactory == null || dataSource == null) {
+            throw new IllegalArgumentException("Parameters must not be null");
+        }
+        this.id = id;
+        this.transactionFactory = transactionFactory;
+        this.dataSource = dataSource;
+    }
+}
