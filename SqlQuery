@@ -1,0 +1,19 @@
+import java.util.Map;
+
+public class SqlQuery {
+    public Map<String, String> resultMapInfo;
+    public String type;
+    public String id;
+    public String sql;
+    public String resultType;
+    public String resultMap;
+    public String parameterType;
+    public String keyProperty;
+    public boolean useGeneratedKeys;
+    public String typeForResultMap;
+
+    public SqlQuery(String type, String id) {
+        this.type = type;
+        this.id = id;
+    }
+}
